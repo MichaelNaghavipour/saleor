@@ -2,6 +2,7 @@ import datetime
 from decimal import Decimal
 from unittest.mock import Mock
 
+from django_countries.fields import Country
 from freezegun import freeze_time
 from prices import Money, TaxedMoney, TaxedMoneyRange
 
@@ -29,7 +30,7 @@ def test_availability(stock, monkeypatch, settings, channel_USD):
         channel=channel_USD,
         collections=[],
         discounts=[],
-        country="PL",
+        country=Country("PL"),
     )
     taxed_price_range = TaxedMoneyRange(start=taxed_price, stop=taxed_price)
     assert availability.price_range == taxed_price_range
@@ -50,7 +51,7 @@ def test_availability(stock, monkeypatch, settings, channel_USD):
         discounts=[],
         channel=channel_USD,
         local_currency="PLN",
-        country="PL",
+        country=Country("PL"),
     )
     assert availability.price_range_local_currency.start.currency == "PLN"
 
@@ -62,7 +63,7 @@ def test_availability(stock, monkeypatch, settings, channel_USD):
         collections=[],
         discounts=[],
         channel=channel_USD,
-        country="PL",
+        country=Country("PL"),
     )
     assert availability.price_range.start.tax.amount
     assert availability.price_range.stop.tax.amount
@@ -91,7 +92,7 @@ def test_availability_with_all_variant_channel_listings(stock, channel_USD):
         channel=channel_USD,
         collections=[],
         discounts=[],
-        country="PL",
+        country=Country("PL"),
     )
 
     # then
@@ -120,7 +121,7 @@ def test_availability_with_missing_variant_channel_listings(stock, channel_USD):
         channel=channel_USD,
         collections=[],
         discounts=[],
-        country="PL",
+        country=Country("PL"),
     )
 
     # then
@@ -147,7 +148,7 @@ def test_availability_without_variant_channel_listings(stock, channel_USD):
         channel=channel_USD,
         collections=[],
         discounts=[],
-        country="PL",
+        country=Country("PL"),
     )
 
     # then
@@ -269,14 +270,13 @@ def test_visible_to_customer_user(customer_user, product_list, channel_USD):
 
 
 def test_visible_to_staff_user(
-    customer_user, product_list, channel_USD, permission_manage_products
+    staff_user, product_list, channel_USD, permission_manage_products
 ):
     product = product_list[0]
     product.variants.all().delete()
-    customer_user.user_permissions.add(permission_manage_products)
 
     available_products = models.Product.objects.visible_to_user(
-        customer_user, channel_USD.slug
+        staff_user, channel_USD.slug
     )
     assert available_products.count() == 3
 

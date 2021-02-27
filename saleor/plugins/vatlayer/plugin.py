@@ -9,7 +9,7 @@ from django_prices_vatlayer.utils import (
     fetch_rates,
     get_tax_rate_types,
 )
-from prices import Money, MoneyRange, TaxedMoney, TaxedMoneyRange
+from prices import Money, TaxedMoney, TaxedMoneyRange
 
 from ...checkout import calculations
 from ...core.taxes import TaxType
@@ -168,42 +168,85 @@ class VatlayerPlugin(BasePlugin):
     def calculate_checkout_line_total(
         self,
         checkout: "Checkout",
-        checkout_line: "CheckoutLine",
+        checkout_line_info: "CheckoutLineInfo",
+        address: Optional["Address"],
+        channel: "Channel",
+        discounts: Iterable["DiscountInfo"],
+        previous_value: TaxedMoney,
+    ) -> TaxedMoney:
+        unit_price = self.__calculate_checkout_line_unit_price(
+            address,
+            discounts,
+            checkout_line_info.variant,
+            checkout_line_info.product,
+            checkout_line_info.collections,
+            channel,
+            checkout_line_info.channel_listing,
+            previous_value,
+        )
+        return (
+            unit_price * checkout_line_info.line.quantity
+            if unit_price is not None
+            else previous_value
+        )
+
+    def calculate_checkout_line_unit_price(
+        self,
+        checkout: "Checkout",
+        checkout_line_info: "CheckoutLineInfo",
+        address: Optional["Address"],
+        discounts: Iterable["DiscountInfo"],
+        channel: "Channel",
+        previous_value: TaxedMoney,
+    ) -> TaxedMoney:
+        unit_price = self.__calculate_checkout_line_unit_price(
+            address,
+            discounts,
+            checkout_line_info.variant,
+            checkout_line_info.product,
+            checkout_line_info.collections,
+            channel,
+            checkout_line_info.channel_listing,
+            previous_value,
+        )
+        return unit_price if unit_price is not None else previous_value
+
+    def __calculate_checkout_line_unit_price(
+        self,
+        address: Optional["Address"],
+        discounts: Iterable["DiscountInfo"],
         variant: "ProductVariant",
         product: "Product",
         collections: List["Collection"],
-        address: Optional["Address"],
         channel: "Channel",
         channel_listing: "ProductVariantChannelListing",
-        discounts: List["DiscountInfo"],
         previous_value: TaxedMoney,
-    ) -> TaxedMoney:
+    ):
         if self._skip_plugin(previous_value):
-            return previous_value
+            return
 
         price = variant.get_price(
             product, collections, channel, channel_listing, discounts
         )
         country = address.country if address else None
-        return (
-            self.__apply_taxes_to_product(product, price, country)
-            * checkout_line.quantity
-        )
+        return self.__apply_taxes_to_product(product, price, country)
 
     def calculate_order_line_unit(
-        self, order_line: "OrderLine", previous_value: TaxedMoney
+        self,
+        order: "Order",
+        order_line: "OrderLine",
+        variant: "ProductVariant",
+        product: "Product",
+        previous_value: TaxedMoney,
     ) -> TaxedMoney:
         if self._skip_plugin(previous_value):
             return previous_value
 
-        address = order_line.order.shipping_address or order_line.order.billing_address
+        address = order.shipping_address or order.billing_address
         country = address.country if address else None
-        variant = order_line.variant
         if not variant:
             return previous_value
-        return self.__apply_taxes_to_product(
-            variant.product, order_line.unit_price, country
-        )
+        return self.__apply_taxes_to_product(product, order_line.unit_price, country)
 
     def get_checkout_line_tax_rate(
         self,
@@ -262,7 +305,7 @@ class VatlayerPlugin(BasePlugin):
             return previous_value
         tax = taxes.get(DEFAULT_TAX_RATE_NAME)
         # tax value is given in precentage so it need be be converted into decimal value
-        return Decimal(tax["value"] / 100)
+        return Decimal(tax["value"]) / 100
 
     def get_tax_rate_type_choices(
         self, previous_value: List["TaxType"]
@@ -281,15 +324,6 @@ class VatlayerPlugin(BasePlugin):
         if not self.active:
             return previous_value
         return True
-
-    def apply_taxes_to_shipping_price_range(
-        self, prices: MoneyRange, country: Country, previous_value: TaxedMoneyRange
-    ) -> TaxedMoneyRange:
-        if self._skip_plugin(previous_value):
-            return previous_value
-
-        taxes = self._get_taxes_for_country(country)
-        return get_taxed_shipping_price(prices, taxes)
 
     def apply_taxes_to_shipping(
         self, price: Money, shipping_address: "Address", previous_value: TaxedMoney
